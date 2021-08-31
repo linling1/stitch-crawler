@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package crawler;
+
+option java_package = "com.linling.stitch.crawler.grpc.protobuf";
+option java_outer_classname = "CrawlerProto";
+option java_multiple_files = true;
+
+service CrawlerService {
+    rpc Fetch (FetchRequest) returns (FetchResponse) {
+    }
+
+    rpc MultiFetch (stream FetchRequest) returns (FetchResponses) {
+    }
+
+    rpc AsyncFetch (stream FetchRequest) returns (stream FetchResponse) {
+    }
+
+}
+
+message FetchRequest {
+    string url = 1;
+    string proxy = 2;
+    map<string, string> header = 3;
+    bytes body = 4;
+    string method = 5;
+    int64 timeout = 6;
+}
+
+// 可根据需求自行修改
+enum FetchCode {
+    UNFETCHED = 0; // Page was not crawlered yet
+    SUCCESS = 1; // Page was successfully fetched
+    IO_ERROR = 2; // IO ERROR
+    FETCHED_ERROR = 3; // Unspecified error occured. Further information may be provided in args.
+    TIMEOUT_ERROR = 4; // Timeout error
+    ILLEGAL_ARGUMENT_ERROR = 5; // Illegal argument error
+
+}
+
+message FetchStatus {
+    FetchCode code = 1;
+    string msg = 2;
+}
+
+message FetchResponse {
+    string real_url = 1;
+    int32 http_code = 2;
+    string http_msg = 3;
+    map<string, string> header = 4;
+    string proto = 5;
+    bytes body = 6;
+    int64 cost = 7;
+    int64 ts = 8;
+    FetchStatus status = 9;
+    string proxy = 10;
+    string fetch_url = 11;
+}
+
+message FetchResponses {
+    repeated FetchResponse fetchResponses = 1;
+}
