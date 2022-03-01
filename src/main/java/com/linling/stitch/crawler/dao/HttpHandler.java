@@ -21,6 +21,8 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -34,6 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.zip.GZIPInputStream;
 
 import static com.linling.stitch.crawler.common.ApiConstants.Proxy_None;
 import static com.linling.stitch.crawler.common.FetchStatus.FetchCode.*;
@@ -138,40 +141,60 @@ public class HttpHandler {
 
             resp.setTs(startT/1000);
 
-            HttpResponse<byte[]> response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<InputStream> response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
 
+            InputStream body = getDecodedInputStream(response);
             resp.setRealUrl(response.uri().toString());
             resp.setHttpCode(response.statusCode());
             resp.setHttpMsg(HttpStatus.getStatusText(response.statusCode()));
             resp.setHeader(response.headers().map().entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, entry-> Strings.join(entry.getValue(),','))));
-            resp.setBody(response.body());
+            resp.setBody(body.readAllBytes());
             resp.setProto(response.version().name());
             resp.setStatus(FetchStatus.of(SUCCESS));
-            resp.setCost(System.currentTimeMillis() - startT);
-            resp.setProxy(caller.get());
-            resp.setRequestEntity(req);
 
         } catch (HttpTimeoutException e) {
             log.error("request fail. url : {} ; err : {}", req.getUrl(), e);
             resp.setStatus(FetchStatus.of(TIMEOUT_ERROR, e.getMessage()));
-            resp.setCost(System.currentTimeMillis() - startT);
         } catch (SecurityException | InterruptedException e) {
             log.error("request fail. url : {} ; err : {}", req.getUrl(), e);
             resp.setStatus(FetchStatus.of(FETCHED_ERROR, e.getMessage()));
-            resp.setCost(System.currentTimeMillis() - startT);
         } catch (IllegalArgumentException e) {
             log.error("request fail. url : {} ; err : {}", req.getUrl(), e);
             resp.setStatus(FetchStatus.of(ILLEGAL_ARGUMENT_ERROR, e.getMessage()));
-            resp.setCost(System.currentTimeMillis() - startT);
         } catch (IOException e) {
             log.error("request fail. url : {} ; err : {}", req.getUrl(), e);
             resp.setStatus(FetchStatus.of(IO_ERROR, e.getMessage()));
-            resp.setCost(System.currentTimeMillis() - startT);
         } finally {
+            resp.setCost(System.currentTimeMillis() - startT);
+            resp.setProxy(caller.get());
+            resp.setRequestEntity(req);
             caller.remove();
         }
 
         return resp;
+    }
+
+    public InputStream getDecodedInputStream(
+            HttpResponse<InputStream> httpResponse) {
+        String encoding = determineContentEncoding(httpResponse);
+        try {
+            switch (encoding) {
+                case "":
+                    return httpResponse.body();
+                case "gzip":
+                    return new GZIPInputStream(httpResponse.body());
+                default:
+                    log.info("Unexpected Content-Encoding , use default body. encoding : {}", encoding);
+                    return httpResponse.body();
+            }
+        } catch (IOException ioe) {
+            throw new UncheckedIOException(ioe);
+        }
+    }
+
+    public String determineContentEncoding(
+            HttpResponse<?> httpResponse) {
+        return httpResponse.headers().firstValue("Content-Encoding").orElse("");
     }
 
 }
